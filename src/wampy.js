@@ -19,6 +19,8 @@ import * as Errors from './errors.js';
 import { WebsocketError } from './errors.js';
 import { getNewPromise, getWebSocket } from './utils.js';
 import { JsonSerializer } from './serializers/json-serializer.js';
+import { LongpollTransport } from './transports/longpoll.js';
+import { SSETransport } from './transports/sse.js';
 
 const jsonSerializer = new JsonSerializer();
 
@@ -365,6 +367,12 @@ class Wampy {
              * @type {object}
              */
             wsRequestOptions: null,
+
+            /**
+             * Transport type to use
+             * @type {string} - 'websocket' | 'longpoll' | 'sse'
+             */
+            transport: 'websocket',
 
             /**
              * User provided Serializer class
@@ -1468,20 +1476,52 @@ class Wampy {
      * Reconnect to server in case of websocket error
      * @private
      */
-    _wsReconnect () {
-        this._log('websocket reconnecting...');
+    async _wsReconnect () {
+        this._log('transport reconnecting...');
 
         if (this._options.onReconnect) {
             this._options.onReconnect();
         }
 
         this._cache.reconnectingAttempts++;
-        this._ws = getWebSocket({
-            url: this._url,
-            protocols: this._protocols,
-            options: this._options
-        });
-        this._initWsCallbacks();
+
+        if (this._options.transport === 'longpoll') {
+            this._ws = new LongpollTransport({
+                protocols: this._protocols,
+                headers: this._options.additionalHeaders || {},
+                fetch: this._options.fetch
+            });
+            this._initWsCallbacks();
+
+            try {
+                await this._ws.connect(this._url);
+            } catch (error) {
+                this._log('longpoll reconnect failed:', error);
+            }
+        } else if (this._options.transport === 'sse') {
+            const sseProtocols = this._protocols.map(p => p + '.sse');
+            this._ws = new SSETransport({
+                protocols: [...sseProtocols, ...this._protocols],
+                headers: this._options.additionalHeaders || {},
+                fetch: this._options.fetch,
+                EventSource: this._options.EventSource,
+                withCredentials: this._options.withCredentials
+            });
+            this._initWsCallbacks();
+
+            try {
+                await this._ws.connect(this._url);
+            } catch (error) {
+                this._log('sse reconnect failed:', error);
+            }
+        } else {
+            this._ws = getWebSocket({
+                url: this._url,
+                protocols: this._protocols,
+                options: this._options
+            });
+            this._initWsCallbacks();
+        }
     }
 
     /**
@@ -1646,22 +1686,60 @@ class Wampy {
         }
 
         this._setWsProtocols();
-        this._ws = getWebSocket({
-            url: this._url,
-            protocols: this._protocols,
-            options: this._options
-        });
-
-        if (!this._ws) {
-            const noWsOrUrlError = new Errors.NoWsOrUrlError();
-            this._fillOpStatusByError(noWsOrUrlError);
-            throw noWsOrUrlError;
-        }
-
-        this._initWsCallbacks();
 
         const defer = getNewPromise();
         this._cache.connectPromise = defer;
+
+        if (this._options.transport === 'longpoll') {
+            this._ws = new LongpollTransport({
+                protocols: this._protocols,
+                headers: this._options.additionalHeaders || {},
+                fetch: this._options.fetch
+            });
+            this._initWsCallbacks();
+
+            // LongpollTransport needs explicit connect call
+            try {
+                await this._ws.connect(this._url);
+            } catch (error) {
+                this._fillOpStatusByError(new Errors.NoWsOrUrlError());
+                throw error;
+            }
+        } else if (this._options.transport === 'sse') {
+            // SSE protocols have .sse suffix
+            const sseProtocols = this._protocols.map(p => p + '.sse');
+            this._ws = new SSETransport({
+                protocols: [...sseProtocols, ...this._protocols],
+                headers: this._options.additionalHeaders || {},
+                fetch: this._options.fetch,
+                EventSource: this._options.EventSource,
+                withCredentials: this._options.withCredentials
+            });
+            this._initWsCallbacks();
+
+            // SSETransport needs explicit connect call
+            try {
+                await this._ws.connect(this._url);
+            } catch (error) {
+                this._fillOpStatusByError(new Errors.NoWsOrUrlError());
+                throw error;
+            }
+        } else {
+            this._ws = getWebSocket({
+                url: this._url,
+                protocols: this._protocols,
+                options: this._options
+            });
+
+            if (!this._ws) {
+                const noWsOrUrlError = new Errors.NoWsOrUrlError();
+                this._fillOpStatusByError(noWsOrUrlError);
+                throw noWsOrUrlError;
+            }
+
+            this._initWsCallbacks();
+        }
+
         return defer.promise;
     }
 
@@ -2335,4 +2413,6 @@ class Wampy {
 
 export default Wampy;
 export { Wampy };
+export { LongpollTransport };
+export { SSETransport };
 export * as Errors from './errors.js';

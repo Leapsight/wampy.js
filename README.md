@@ -50,6 +50,7 @@ Javascript client (for browser and node.js)
     * [Error handling](#error-handling)
     * [Custom attributes for Advanced Options](#custom-attributes-for-advanced-options)
   * [Using custom serializer](#using-custom-serializer)
+  * [HTTP Transports (Longpoll and SSE)](#http-transports-longpoll-and-sse)
   * [Connecting through TLS in node environment](#connecting-through-tls-in-node-environment)
   * [Tests and code coverage](#tests-and-code-coverage)
   * [Copyright and License](#copyright-and-license)
@@ -216,6 +217,12 @@ Wampy.js exports next components that you can import at your needs:
         }
     }
 }
+```
+
+The main module also exports HTTP transport classes:
+
+```javascript
+import { Wampy, LongpollTransport, SSETransport, Errors } from 'wampy';
 ```
 
 [Back to Table of Contents](#table-of-contents)
@@ -422,6 +429,8 @@ See docs for [WebSocketClient][], [tls.connect options][].
 instead of default `json`.
 - **payloadSerializers**. Default value: `{ json: jsonSerializer }`. User provided hashmap of serializer instances for
 using in Payload Passthru Mode. Allows to specify a few serializers and use them on per message/call basis.
+- **transport**. Default value: `'websocket'`. Transport type to use. Options: `'websocket'`, `'longpoll'`, `'sse'`.
+See [HTTP Transports](#http-transports-longpoll-and-sse) for details.
 
 ```javascript
 wampy.setOptions({
@@ -1289,6 +1298,142 @@ Custom serializer instance must meet a few requirements:
 
 Take a look at [json-serializer.js](src/serializers/json-serializer.js) or
 [msgpack-serializer.js](src/serializers/msgpack-serializer.js) as examples.
+
+[Back to Table of Contents](#table-of-contents)
+
+## HTTP Transports (Longpoll and SSE)
+
+Wampy.js supports HTTP-based transports as alternatives to WebSocket. These are useful when WebSocket is unavailable or blocked.
+
+### Transport Types
+
+- **`websocket`** (default) - Standard WebSocket transport
+- **`longpoll`** - HTTP Long Polling transport
+- **`sse`** - HTTP Server-Sent Events transport (SSE for downstream, HTTP POST for upstream)
+
+### HTTP Longpoll Transport
+
+Long polling uses HTTP POST for both sending and receiving messages. The client polls the server for new messages.
+
+```javascript
+import { Wampy } from 'wampy';
+
+// JSON serializer (default)
+const wampy = new Wampy('http://router.example.com:8080', {
+    realm: 'realm1',
+    transport: 'longpoll'
+});
+await wampy.connect();
+```
+
+With MessagePack:
+
+```javascript
+import { Wampy } from 'wampy';
+import { MsgpackSerializer } from 'wampy/MsgpackSerializer.js';
+
+const wampy = new Wampy('http://router.example.com:8080', {
+    realm: 'realm1',
+    transport: 'longpoll',
+    serializer: new MsgpackSerializer()
+});
+await wampy.connect();
+```
+
+With CBOR:
+
+```javascript
+import { Wampy } from 'wampy';
+import { CborSerializer } from 'wampy/CborSerializer.js';
+
+const wampy = new Wampy('http://router.example.com:8080', {
+    realm: 'realm1',
+    transport: 'longpoll',
+    serializer: new CborSerializer()
+});
+await wampy.connect();
+```
+
+### HTTP SSE Transport
+
+SSE transport uses Server-Sent Events for receiving messages (downstream) and HTTP POST for sending (upstream). This is more efficient than long polling as the server pushes messages immediately.
+
+```javascript
+import { Wampy } from 'wampy';
+
+// JSON serializer (default)
+const wampy = new Wampy('http://router.example.com:8080', {
+    realm: 'realm1',
+    transport: 'sse'
+});
+await wampy.connect();
+```
+
+With MessagePack:
+
+```javascript
+import { Wampy } from 'wampy';
+import { MsgpackSerializer } from 'wampy/MsgpackSerializer.js';
+
+const wampy = new Wampy('http://router.example.com:8080', {
+    realm: 'realm1',
+    transport: 'sse',
+    serializer: new MsgpackSerializer()
+});
+await wampy.connect();
+```
+
+With CBOR:
+
+```javascript
+import { Wampy } from 'wampy';
+import { CborSerializer } from 'wampy/CborSerializer.js';
+
+const wampy = new Wampy('http://router.example.com:8080', {
+    realm: 'realm1',
+    transport: 'sse',
+    serializer: new CborSerializer()
+});
+await wampy.connect();
+```
+
+### Using Transport Classes Directly
+
+You can also import and use the transport classes directly for advanced use cases:
+
+```javascript
+import { LongpollTransport, SSETransport } from 'wampy';
+
+// Create transport with custom options
+const transport = new LongpollTransport({
+    protocols: ['wamp.2.json', 'wamp.2.msgpack'],
+    headers: { 'Authorization': 'Bearer token' }
+});
+
+// Or SSE transport
+const sseTransport = new SSETransport({
+    protocols: ['wamp.2.json.sse'],
+    withCredentials: true
+});
+```
+
+### Environment Notes
+
+- **Browser**: Both transports work natively. SSE uses the built-in `EventSource` API.
+- **Node.js**: Both transports work without external dependencies. SSE includes a built-in SSE client.
+- **URL scheme**: Use `http://` or `https://` (not `ws://` or `wss://`) for HTTP transports.
+
+### Protocol Negotiation
+
+HTTP transports negotiate the WAMP subprotocol during the initial `/open` request:
+
+| Serializer | Longpoll Protocol | SSE Protocol |
+|------------|-------------------|--------------|
+| JSON | `wamp.2.json` | `wamp.2.json.sse` |
+| MessagePack | `wamp.2.msgpack` | `wamp.2.msgpack.sse` |
+| CBOR | `wamp.2.cbor` | `wamp.2.cbor.sse` |
+
+Binary serializers (MessagePack, CBOR) use base64url encoding when transmitted over SSE.
 
 [Back to Table of Contents](#table-of-contents)
 
