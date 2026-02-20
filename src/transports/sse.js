@@ -6,16 +6,18 @@
  * Provides a WebSocket-like API surface for compatibility with Wampy.
  */
 
-// Import http/https for Node.js SSE client
+// Import http/https/zlib for Node.js SSE client
 let httpModule = null;
 let httpsModule = null;
+let zlibModule = null;
 
-// Try to load http/https modules (will fail in browser, which is fine)
+// Try to load Node.js modules (will fail in browser, which is fine)
 try {
     httpModule = await import('http');
     httpsModule = await import('https');
+    zlibModule = await import('zlib');
 } catch {
-    // Browser environment - no http/https modules needed
+    // Browser environment - no http/https/zlib modules needed
 }
 
 /**
@@ -99,6 +101,7 @@ class NodeSSEClient {
             headers: {
                 'Accept': 'text/event-stream',
                 'Cache-Control': 'no-cache',
+                ...(zlibModule ? { 'Accept-Encoding': 'gzip, deflate' } : {}),
                 ...this._headers
             }
         };
@@ -138,13 +141,22 @@ class NodeSSEClient {
                     }
                 }
 
-                res.setEncoding('utf8');
-                res.on('data', (chunk) => this._parseChunk(chunk));
-                res.on('end', () => {
+                // Decompress if server sent gzip/deflate
+                let stream = res;
+                const encoding = (res.headers['content-encoding'] || '').toLowerCase();
+                if (zlibModule && encoding === 'gzip') {
+                    stream = res.pipe(zlibModule.createGunzip());
+                } else if (zlibModule && encoding === 'deflate') {
+                    stream = res.pipe(zlibModule.createInflate());
+                }
+
+                stream.setEncoding('utf8');
+                stream.on('data', (chunk) => this._parseChunk(chunk));
+                stream.on('end', () => {
                     this._readyState = NodeSSEClient.CLOSED;
                     this._dispatchError(new Error('Connection closed'));
                 });
-                res.on('error', (err) => {
+                stream.on('error', (err) => {
                     this._readyState = NodeSSEClient.CLOSED;
                     this._dispatchError(err);
                 });

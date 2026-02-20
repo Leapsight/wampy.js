@@ -1501,7 +1501,7 @@ class Wampy {
         } else if (this._options.transport === 'sse') {
             const sseProtocols = this._protocols.map(p => p + '.sse');
             this._ws = new SSETransport({
-                protocols: [...sseProtocols, ...this._protocols],
+                protocols: sseProtocols,
                 headers: this._options.additionalHeaders || {},
                 fetch: this._options.fetch,
                 EventSource: this._options.EventSource,
@@ -1709,7 +1709,7 @@ class Wampy {
             // SSE protocols have .sse suffix
             const sseProtocols = this._protocols.map(p => p + '.sse');
             this._ws = new SSETransport({
-                protocols: [...sseProtocols, ...this._protocols],
+                protocols: sseProtocols,
                 headers: this._options.additionalHeaders || {},
                 fetch: this._options.fetch,
                 EventSource: this._options.EventSource,

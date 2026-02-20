@@ -106,6 +106,7 @@
     "test:node-no-crossbar": "npm run test:node -- 'test/!(wampy-crossbar|wampy-browser-wrappers)-test.js'",
     "test:node-cli": "npm run test:node -- 'test/wampy-cli-*.js'",
     "test:crossbar": "npm run test:node -- 'test/wampy-crossbar-test.js'",
+    "test:bondy": "npm run test:node -- 'test/wampy-bondy-test.js'",
     "test:browser-wrappers": "npm run test:node -- -r jsdom-global/register 'test/wampy-browser-wrappers-test.js'",
     "test:browser": "npx karma start karma.conf.cjs",
     "cover": "c8 report",
