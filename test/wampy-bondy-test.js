@@ -16,7 +16,7 @@ import { LongpollTransport } from '../src/transports/longpoll.js';
 
 const LONGPOLL_URL = process.env.BONDY_LONGPOLL_URL || 'http://localhost:18080/wamp/longpoll';
 const SSE_URL      = process.env.BONDY_SSE_URL || 'http://localhost:18080/wamp/sse';
-const REALM        = process.env.BONDY_REALM || 'com.leapsight.longpoll';
+const REALM        = process.env.BONDY_REALM || 'com.leapsight.test';
 
 // Generate unique names per test run to avoid stale registrations
 const SUFFIX = Date.now() + '.' + Math.random().toString(36).slice(2, 8);
