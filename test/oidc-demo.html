@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wampy OIDC Cookie Demo</title>
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#1a1a1a;background:#fafafa}
+h1{font-size:1.4rem;margin-bottom:.25rem}
+h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
+.subtitle{color:#666;margin-top:0;font-size:.9rem}
+label{font-weight:600;font-size:.85rem}
+select,input,button{font-size:.85rem;padding:.4rem .7rem;border:1px solid #ccc;border-radius:4px}
+select{background:#fff}
+button{cursor:pointer;background:#2563eb;color:#fff;border:none;border-radius:4px;padding:.45rem 1rem;font-weight:600}
+button:hover{background:#1d4ed8}
+button:disabled{background:#94a3b8;cursor:not-allowed}
+button.danger{background:#dc2626}
+button.danger:hover{background:#b91c1c}
+button.secondary{background:#6b7280}
+button.secondary:hover{background:#4b5563}
+.row{display:flex;align-items:center;gap:.75rem;margin:.5rem 0}
+.card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:1rem 1.25rem;margin:.75rem 0}
+.hidden{display:none}
+#log{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:.78rem;line-height:1.5;background:#0f172a;color:#e2e8f0;border-radius:6px;padding:.75rem 1rem;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;margin-top:.75rem}
+.log-info{color:#38bdf8}
+.log-ok{color:#4ade80}
+.log-warn{color:#fbbf24}
+.log-err{color:#f87171}
+.log-event{color:#c084fc}
+.status{display:inline-block;padding:.15rem .5rem;border-radius:10px;font-size:.75rem;font-weight:600}
+.status.off{background:#fee2e2;color:#991b1b}
+.status.on{background:#dcfce7;color:#166534}
+.cookie-info{font-size:.8rem;color:#475569;background:#f1f5f9;padding:.5rem .75rem;border-radius:4px;margin:.5rem 0}
+</style>
+</head>
+<body>
+
+<h1>Wampy.js &mdash; OIDC Cookie Demo</h1>
+<p class="subtitle">Login via OIDC, then connect to Bondy over Longpoll or SSE using cookie-based auth.</p>
+
+<!-- Login Section -->
+<div class="card" id="login-section">
+    <h2 style="margin-top:0">1. Login</h2>
+    <div class="row">
+        <label for="transport-select">Transport:</label>
+        <select id="transport-select">
+            <option value="longpoll">Longpoll</option>
+            <option value="sse">SSE</option>
+        </select>
+    </div>
+    <div class="row">
+        <label for="realm-input">Realm:</label>
+        <input id="realm-input" type="text" value="com.leapsight.test" style="flex:1">
+    </div>
+    <div class="row">
+        <label for="login-url-input">Login URL:</label>
+        <input id="login-url-input" type="text"
+               value="http://localhost:18080/v1.0/oidc/login?provider=mock"
+               style="flex:1">
+    </div>
+    <div class="row" style="margin-top:.75rem">
+        <button id="login-btn">Login with OIDC</button>
+        <span id="login-status" class="status off">Not logged in</span>
+    </div>
+    <div id="cookie-display" class="cookie-info hidden"></div>
+</div>
+
+<!-- WAMP Section -->
+<div class="card" id="wamp-section">
+    <h2 style="margin-top:0">2. WAMP Session</h2>
+    <div class="row">
+        <button id="connect-btn" disabled>Connect</button>
+        <button id="disconnect-btn" class="danger" disabled>Disconnect</button>
+        <span id="wamp-status" class="status off">Disconnected</span>
+    </div>
+</div>
+
+<!-- Pub/Sub Section -->
+<div class="card" id="pubsub-section">
+    <h2 style="margin-top:0">3. Pub/Sub</h2>
+    <div class="row">
+        <label for="topic-input">Topic:</label>
+        <input id="topic-input" type="text" value="com.example.topic1" style="flex:1">
+    </div>
+    <div class="row">
+        <button id="subscribe-btn" disabled>Subscribe</button>
+        <button id="unsubscribe-btn" class="secondary" disabled>Unsubscribe</button>
+    </div>
+    <div class="row">
+        <label for="publish-input">Payload:</label>
+        <input id="publish-input" type="text" value="hello world" style="flex:1">
+        <button id="publish-btn" disabled>Publish</button>
+    </div>
+</div>
+
+<!-- Log -->
+<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">Log</h2>
+        <button class="secondary" onclick="document.getElementById('log').textContent=''">Clear</button>
+    </div>
+    <div id="log"></div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    // -----------------------------------------------------------------------
+    // Configuration
+    // -----------------------------------------------------------------------
+    const LONGPOLL_BASE = 'http://localhost:18080/wamp/longpoll';
+    const SSE_BASE      = 'http://localhost:18080/wamp/sse';
+
+    // WAMP message types
+    const HELLO       = 1;
+    const WELCOME     = 2;
+    const ABORT       = 3;
+    const GOODBYE     = 6;
+    const ERROR       = 8;
+    const PUBLISH     = 16;
+    const PUBLISHED   = 17;
+    const SUBSCRIBE   = 32;
+    const SUBSCRIBED  = 33;
+    const UNSUBSCRIBE = 34;
+    const UNSUBSCRIBED = 35;
+    const EVENT       = 36;
+
+    // -----------------------------------------------------------------------
+    // DOM refs
+    // -----------------------------------------------------------------------
+    const $transportSel   = document.getElementById('transport-select');
+    const $realmInput     = document.getElementById('realm-input');
+    const $loginUrlInput  = document.getElementById('login-url-input');
+    const $loginBtn       = document.getElementById('login-btn');
+    const $loginStatus    = document.getElementById('login-status');
+    const $cookieDisplay  = document.getElementById('cookie-display');
+    const $connectBtn     = document.getElementById('connect-btn');
+    const $disconnectBtn  = document.getElementById('disconnect-btn');
+    const $wampStatus     = document.getElementById('wamp-status');
+    const $topicInput     = document.getElementById('topic-input');
+    const $subscribeBtn   = document.getElementById('subscribe-btn');
+    const $unsubscribeBtn = document.getElementById('unsubscribe-btn');
+    const $publishInput   = document.getElementById('publish-input');
+    const $publishBtn     = document.getElementById('publish-btn');
+    const $log            = document.getElementById('log');
+
+    // -----------------------------------------------------------------------
+    // State
+    // -----------------------------------------------------------------------
+    let session = null;          // current WampSession
+    let subscriptionId = null;   // active WAMP subscription id
+    let nextRequestId = 1;
+
+    // -----------------------------------------------------------------------
+    // Logging
+    // -----------------------------------------------------------------------
+    function log (msg, cls) {
+        const ts = new Date().toISOString().slice(11, 23);
+        const span = document.createElement('span');
+        if (cls) span.className = cls;
+        span.textContent = `[${ts}] ${msg}\n`;
+        $log.appendChild(span);
+        $log.scrollTop = $log.scrollHeight;
+    }
+
+    // -----------------------------------------------------------------------
+    // Cookie helpers
+    // -----------------------------------------------------------------------
+    function getCookie (name) {
+        const m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+        return m ? decodeURIComponent(m[1]) : null;
+    }
+
+    function isLoggedIn () {
+        return getCookie('bondy_ticket') !== null;
+    }
+
+    function csrfHeaders () {
+        const csrf = getCookie('bondy_csrf');
+        return csrf ? { 'X-CSRF-Token': csrf } : {};
+    }
+
+    // Fetch wrapper that always sends credentials + CSRF
+    function authFetch (url, opts = {}) {
+        opts.credentials = 'include';
+        opts.headers = { ...csrfHeaders(), ...(opts.headers || {}) };
+        return fetch(url, opts);
+    }
+
+    // -----------------------------------------------------------------------
+    // WAMP Client (manual protocol, browser-native fetch/EventSource)
+    // -----------------------------------------------------------------------
+    function _delay (ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
+
+    class WampClient {
+        constructor (transport, realm) {
+            this._transport = transport;
+            this._realm = realm;
+            this._baseUrl = transport === 'sse' ? SSE_BASE : LONGPOLL_BASE;
+            this._tid = null;
+            this._sessionId = null;
+            this._eventSource = null;
+            this._receiving = false;
+            this._abortCtrl = null;
+            this._closed = false;
+
+            // Pending request-id based promises  { reqId: {resolve, reject} }
+            this._pending = {};
+            // Event listeners by subscription id { subId: callback }
+            this._eventListeners = {};
+            // Map request id -> resolve for subscribe (to capture subId)
+            this._subscribeRequests = {};
+        }
+
+        get sessionId () { return this._sessionId; }
+
+        async connect () {
+            const protocols = this._transport === 'sse'
+                ? ['wamp.2.json.sse', 'wamp.2.json']
+                : ['wamp.2.json'];
+
+            const openResp = await authFetch(`${this._baseUrl}/open`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ protocols }),
+            });
+            if (!openResp.ok) throw new Error('Open failed: ' + openResp.status);
+            const { transport: tid } = await openResp.json();
+            this._tid = tid;
+            log('Transport opened  tid=' + tid, 'log-info');
+
+            // Start receive
+            if (this._transport === 'sse') {
+                await this._openSSE();
+            } else {
+                this._startLongpollLoop();
+            }
+
+            // HELLO / WELCOME
+            const welcome = await this._request(HELLO, WELCOME,
+                [HELLO, this._realm, {
+                    roles: { caller: {}, callee: {}, publisher: {}, subscriber: {} },
+                }], 10000);
+            this._sessionId = welcome[1];
+            log('Session established  id=' + this._sessionId, 'log-ok');
+        }
+
+        async subscribe (topic, callback) {
+            const reqId = nextRequestId++;
+            const p = this._makeDeferred(reqId);
+            await this._send([SUBSCRIBE, reqId, {}, topic]);
+            const msg = await p.promise;
+            const subId = msg[2];
+            this._eventListeners[subId] = callback;
+            log('Subscribed  topic=' + topic + '  subId=' + subId, 'log-ok');
+            return subId;
+        }
+
+        async unsubscribe (subId) {
+            const reqId = nextRequestId++;
+            const p = this._makeDeferred(reqId);
+            await this._send([UNSUBSCRIBE, reqId, subId]);
+            await p.promise;
+            delete this._eventListeners[subId];
+            log('Unsubscribed  subId=' + subId, 'log-ok');
+        }
+
+        async publish (topic, args, kwargs, options) {
+            const reqId = nextRequestId++;
+            const opts = { acknowledge: true, ...(options || {}) };
+            const msg = [PUBLISH, reqId, opts, topic];
+            if (args) msg.push(args);
+            if (kwargs) msg.push(kwargs);
+            const p = this._makeDeferred(reqId);
+            await this._send(msg);
+            await p.promise;
+            log('Published  topic=' + topic, 'log-ok');
+        }
+
+        async disconnect () {
+            log('Client initiating disconnect...', 'log-info');
+            this._closed = true;
+            this._receiving = false;
+            if (this._abortCtrl) this._abortCtrl.abort();
+            if (this._eventSource) {
+                this._eventSource.close();
+                this._eventSource = null;
+                log('Client closed SSE stream', 'log-info');
+            }
+            if (this._tid) {
+                try {
+                    await this._send([GOODBYE, {}, 'wamp.close.normal']);
+                    log('Client sent GOODBYE to router', 'log-info');
+                } catch (e) {
+                    log('Client GOODBYE send failed: ' + e.message, 'log-warn');
+                }
+                try {
+                    await authFetch(`${this._baseUrl}/${this._tid}/close`, { method: 'POST' });
+                    log('Client closed HTTP transport', 'log-info');
+                } catch (e) {
+                    log('Client HTTP transport close failed: ' + e.message, 'log-warn');
+                }
+            }
+            this._sessionId = null;
+            this._eventListeners = {};
+            this._pending = {};
+        }
+
+        // -- internal -------------------------------------------------------
+
+        _makeDeferred (reqId) {
+            const d = {};
+            d.promise = new Promise((resolve, reject) => {
+                d.resolve = resolve;
+                d.reject = reject;
+            });
+            // Timeout
+            d.timer = setTimeout(() => {
+                delete this._pending[reqId];
+                d.reject(new Error('Request ' + reqId + ' timed out'));
+            }, 15000);
+            this._pending[reqId] = d;
+            return d;
+        }
+
+        async _send (msg) {
+            await authFetch(`${this._baseUrl}/${this._tid}/send`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(msg),
+            });
+        }
+
+        // For HELLO/WELCOME (no request-id based matching)
+        _request (sendType, expectType, msg, timeoutMs) {
+            return new Promise((resolve, reject) => {
+                const timer = setTimeout(() => {
+                    this.__welcomeHandler = null;
+                    reject(new Error('Timeout waiting for ' + expectType));
+                }, timeoutMs);
+                this.__welcomeHandler = (m) => {
+                    if (m[0] === expectType) {
+                        clearTimeout(timer);
+                        this.__welcomeHandler = null;
+                        resolve(m);
+                    } else if (m[0] === ABORT) {
+                        clearTimeout(timer);
+                        this.__welcomeHandler = null;
+                        reject(new Error('ABORT: ' + (m[3] || JSON.stringify(m))));
+                    }
+                };
+                this._send(msg).catch((err) => {
+                    clearTimeout(timer);
+                    this.__welcomeHandler = null;
+                    reject(err);
+                });
+            });
+        }
+
+        _dispatch (msg) {
+            const type = msg[0];
+
+            // Welcome/Abort handler (during connect)
+            if (this.__welcomeHandler) {
+                this.__welcomeHandler(msg);
+                return;
+            }
+
+            switch (type) {
+                case SUBSCRIBED: {
+                    const reqId = msg[1];
+                    const d = this._pending[reqId];
+                    if (d) { clearTimeout(d.timer); delete this._pending[reqId]; d.resolve(msg); }
+                    break;
+                }
+                case UNSUBSCRIBED: {
+                    const reqId = msg[1];
+                    const d = this._pending[reqId];
+                    if (d) { clearTimeout(d.timer); delete this._pending[reqId]; d.resolve(msg); }
+                    break;
+                }
+                case PUBLISHED: {
+                    const reqId = msg[1];
+                    const d = this._pending[reqId];
+                    if (d) { clearTimeout(d.timer); delete this._pending[reqId]; d.resolve(msg); }
+                    break;
+                }
+                case EVENT: {
+                    const subId = msg[1];
+                    const cb = this._eventListeners[subId];
+                    const argsList = msg[4] || [];
+                    const argsDict = msg[5] || {};
+                    log('EVENT  subId=' + subId + '  args=' + JSON.stringify(argsList), 'log-event');
+                    if (cb) cb({ argsList, argsDict });
+                    break;
+                }
+                case ERROR: {
+                    const origType = msg[1];
+                    const reqId = msg[2];
+                    const d = this._pending[reqId];
+                    if (d) {
+                        clearTimeout(d.timer);
+                        delete this._pending[reqId];
+                        d.reject(new Error('WAMP ERROR [' + origType + ']: ' + msg[4]));
+                    }
+                    log('ERROR: ' + JSON.stringify(msg), 'log-err');
+                    break;
+                }
+                case GOODBYE: {
+                    const details = msg[1] || {};
+                    const reason = msg[2] || 'unknown';
+                    log('Router sent GOODBYE  reason=' + reason +
+                        (details.message ? '  message=' + details.message : '') +
+                        '  details=' + JSON.stringify(details), 'log-warn');
+                    break;
+                }
+                default:
+                    log('Unhandled msg type ' + type + ': ' + JSON.stringify(msg), 'log-warn');
+            }
+        }
+
+        // -- longpoll -------------------------------------------------------
+        _startLongpollLoop () {
+            this._receiving = true;
+            (async () => {
+                while (this._receiving && !this._closed) {
+                    try {
+                        this._abortCtrl = new AbortController();
+                        const resp = await authFetch(
+                            `${this._baseUrl}/${this._tid}/receive`, {
+                                method: 'POST',
+                                signal: this._abortCtrl.signal,
+                                cache: 'no-store',
+                            });
+                        if (!resp.ok) {
+                            if (resp.status === 404) {
+                                log('Longpoll receive: HTTP 404 — transport not found (router may have closed it)', 'log-warn'); break;
+                            }
+                            if (resp.status === 410) {
+                                log('Longpoll receive: HTTP 410 — transport gone (router expired the session)', 'log-warn'); break;
+                            }
+                            const body = await resp.text().catch(() => '');
+                            log('Longpoll receive: HTTP ' + resp.status + (body ? ' — ' + body.slice(0, 200) : ''), 'log-warn');
+                            await _delay(1000); continue;
+                        }
+                        const text = await resp.text();
+                        if (!text || text === '[]') continue;
+                        this._dispatch(JSON.parse(text));
+                    } catch (e) {
+                        if (e.name === 'AbortError') {
+                            log('Longpoll receive: aborted (client disconnect)', 'log-info');
+                            break;
+                        }
+                        log('Longpoll receive error: ' + e.message, 'log-err');
+                        await _delay(1000);
+                    }
+                }
+                if (!this._closed) {
+                    log('Longpoll receive loop ended unexpectedly', 'log-warn');
+                }
+            })();
+        }
+
+        // -- sse ------------------------------------------------------------
+        _openSSE () {
+            return new Promise((resolve, reject) => {
+                const url = `${this._baseUrl}/${this._tid}/receive`;
+                this._eventSource = new EventSource(url, { withCredentials: true });
+                let opened = false;
+                let openedAt = null;
+                let lastDataAt = null;
+
+                this._eventSource.onopen = () => {
+                    opened = true;
+                    openedAt = Date.now();
+                    log('SSE stream opened', 'log-info');
+                    resolve();
+                };
+                this._eventSource.addEventListener('wamp', (ev) => {
+                    lastDataAt = Date.now();
+                    try { this._dispatch(JSON.parse(ev.data)); }
+                    catch (e) { log('SSE parse error: ' + e.message, 'log-err'); }
+                });
+                this._eventSource.addEventListener('transport_error', (ev) => {
+                    log('SSE transport_error (from router): ' + ev.data, 'log-err');
+                });
+                this._eventSource.onerror = (ev) => {
+                    if (!this._eventSource) return;
+                    const state = this._eventSource.readyState;
+                    const now = Date.now();
+                    const uptime = openedAt ? ((now - openedAt) / 1000).toFixed(1) + 's' : 'n/a';
+                    const sinceData = lastDataAt ? ((now - lastDataAt) / 1000).toFixed(1) + 's ago' : 'never';
+
+                    let who;
+                    if (!opened) {
+                        who = 'connection never established (CORS issue or server rejected)';
+                    } else if (this._closed) {
+                        who = 'client closed';
+                    } else {
+                        who = 'server closed the connection';
+                    }
+
+                    const detail = 'origin=' + who +
+                        '  uptime=' + uptime +
+                        '  lastData=' + sinceData +
+                        '  readyState=' + (state === 0 ? 'CONNECTING' : state === 2 ? 'CLOSED' : state);
+
+                    if (state === 2) {
+                        log('SSE stream closed — ' + detail, 'log-warn');
+                        if (!this._sessionId) reject(new Error('SSE failed to connect'));
+                    } else if (state === 0) {
+                        log('SSE stream error, reconnecting — ' + detail, 'log-warn');
+                    } else {
+                        log('SSE stream error — ' + detail, 'log-warn');
+                    }
+                };
+            });
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // UI Logic
+    // -----------------------------------------------------------------------
+
+    // Restore transport preference from localStorage
+    const saved = localStorage.getItem('oidc_demo_transport');
+    if (saved) $transportSel.value = saved;
+
+    const savedRealm = localStorage.getItem('oidc_demo_realm');
+    if (savedRealm) $realmInput.value = savedRealm;
+
+    function updateLoginUI () {
+        if (isLoggedIn()) {
+            $loginStatus.textContent = 'Logged in';
+            $loginStatus.className = 'status on';
+            $connectBtn.disabled = false;
+            const ticket = getCookie('bondy_ticket');
+            const csrf = getCookie('bondy_csrf');
+            $cookieDisplay.classList.remove('hidden');
+            $cookieDisplay.textContent =
+                'bondy_ticket: ' + (ticket ? ticket.slice(0, 20) + '...' : '(not set)') +
+                '\nbondy_csrf: ' + (csrf || '(not set)');
+            log('Cookies detected — ready to connect', 'log-ok');
+        } else {
+            $loginStatus.textContent = 'Not logged in';
+            $loginStatus.className = 'status off';
+            $connectBtn.disabled = true;
+            $cookieDisplay.classList.add('hidden');
+        }
+    }
+
+    function setWampUI (connected) {
+        $connectBtn.disabled = connected;
+        $disconnectBtn.disabled = !connected;
+        $subscribeBtn.disabled = !connected;
+        $publishBtn.disabled = !connected;
+        $wampStatus.textContent = connected ? 'Connected' : 'Disconnected';
+        $wampStatus.className = connected ? 'status on' : 'status off';
+        if (!connected) {
+            $unsubscribeBtn.disabled = true;
+            subscriptionId = null;
+        }
+    }
+
+    // -- Login button -------------------------------------------------------
+    $loginBtn.addEventListener('click', () => {
+        localStorage.setItem('oidc_demo_transport', $transportSel.value);
+        localStorage.setItem('oidc_demo_realm', $realmInput.value);
+
+        const loginUrl = $loginUrlInput.value.trim();
+        // Pass current page as redirect target after OIDC flow
+        const redirectUri = window.location.href.split('?')[0];
+        const sep = loginUrl.includes('?') ? '&' : '?';
+        window.location.href = loginUrl + sep + 'redirect_uri=' + encodeURIComponent(redirectUri);
+    });
+
+    // -- Connect button -----------------------------------------------------
+    $connectBtn.addEventListener('click', async () => {
+        const transport = $transportSel.value;
+        const realm = $realmInput.value.trim();
+
+        log('Connecting via ' + transport + ' to realm ' + realm + ' ...', 'log-info');
+        $connectBtn.disabled = true;
+
+        try {
+            session = new WampClient(transport, realm);
+            await session.connect();
+            setWampUI(true);
+        } catch (e) {
+            log('Connect failed: ' + e.message, 'log-err');
+            session = null;
+            setWampUI(false);
+            $connectBtn.disabled = !isLoggedIn();
+        }
+    });
+
+    // -- Disconnect button --------------------------------------------------
+    $disconnectBtn.addEventListener('click', async () => {
+        if (!session) return;
+        await session.disconnect();
+        session = null;
+        setWampUI(false);
+        $connectBtn.disabled = !isLoggedIn();
+        log('Disconnected', 'log-info');
+    });
+
+    // -- Subscribe button ---------------------------------------------------
+    $subscribeBtn.addEventListener('click', async () => {
+        if (!session) return;
+        const topic = $topicInput.value.trim();
+        if (!topic) return;
+
+        try {
+            subscriptionId = await session.subscribe(topic, (event) => {
+                log('Received: ' + JSON.stringify(event.argsList) +
+                    (Object.keys(event.argsDict).length ? ' kw=' + JSON.stringify(event.argsDict) : ''),
+                    'log-event');
+            });
+            $unsubscribeBtn.disabled = false;
+        } catch (e) {
+            log('Subscribe failed: ' + e.message, 'log-err');
+        }
+    });
+
+    // -- Unsubscribe button -------------------------------------------------
+    $unsubscribeBtn.addEventListener('click', async () => {
+        if (!session || !subscriptionId) return;
+        try {
+            await session.unsubscribe(subscriptionId);
+            subscriptionId = null;
+            $unsubscribeBtn.disabled = true;
+        } catch (e) {
+            log('Unsubscribe failed: ' + e.message, 'log-err');
+        }
+    });
+
+    // -- Publish button -----------------------------------------------------
+    $publishBtn.addEventListener('click', async () => {
+        if (!session) return;
+        const topic = $topicInput.value.trim();
+        const payload = $publishInput.value;
+        if (!topic) return;
+
+        try {
+            await session.publish(topic, [payload], {}, { exclude_me: false });
+        } catch (e) {
+            log('Publish failed: ' + e.message, 'log-err');
+        }
+    });
+
+    // -- Init ---------------------------------------------------------------
+    updateLoginUI();
+    setWampUI(false);
+
+})();
+</script>
+
+</body>
+</html>
