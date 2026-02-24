@@ -55,6 +55,14 @@ button.secondary:hover{background:#4b5563}
         <input id="realm-input" type="text" value="com.leapsight.test" style="flex:1">
     </div>
     <div class="row">
+        <label for="client-id-input">Client ID:</label>
+        <input id="client-id-input" type="text" value="my-app" style="flex:1">
+    </div>
+    <div class="row">
+        <label for="device-id-input">Device ID:</label>
+        <input id="device-id-input" type="text" value="browser-abc" style="flex:1">
+    </div>
+    <div class="row">
         <label for="login-url-input">Login URL:</label>
         <input id="login-url-input" type="text"
                value="http://localhost:18080/v1.0/oidc/login?provider=mock"
@@ -133,6 +141,8 @@ button.secondary:hover{background:#4b5563}
     // -----------------------------------------------------------------------
     const $transportSel   = document.getElementById('transport-select');
     const $realmInput     = document.getElementById('realm-input');
+    const $clientIdInput  = document.getElementById('client-id-input');
+    const $deviceIdInput  = document.getElementById('device-id-input');
     const $loginUrlInput  = document.getElementById('login-url-input');
     const $loginBtn       = document.getElementById('login-btn');
     const $loginStatus    = document.getElementById('login-status');
@@ -573,10 +583,15 @@ button.secondary:hover{background:#4b5563}
         localStorage.setItem('oidc_demo_realm', $realmInput.value);
 
         const loginUrl = $loginUrlInput.value.trim();
+        const clientId = $clientIdInput.value.trim();
+        const deviceId = $deviceIdInput.value.trim();
         // Pass current page as redirect target after OIDC flow
         const redirectUri = window.location.href.split('?')[0];
         const sep = loginUrl.includes('?') ? '&' : '?';
-        window.location.href = loginUrl + sep + 'redirect_uri=' + encodeURIComponent(redirectUri);
+        window.location.href = loginUrl + sep +
+            'client_id=' + encodeURIComponent(clientId) +
+            '&device_id=' + encodeURIComponent(deviceId) +
+            '&redirect_uri=' + encodeURIComponent(redirectUri);
     });
 
     // -- Connect button -----------------------------------------------------
