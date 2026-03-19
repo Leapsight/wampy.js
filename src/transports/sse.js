@@ -6,20 +6,6 @@
  * Provides a WebSocket-like API surface for compatibility with Wampy.
  */
 
-// Import http/https/zlib for Node.js SSE client
-let httpModule = null;
-let httpsModule = null;
-let zlibModule = null;
-
-// Try to load Node.js modules (will fail in browser, which is fine)
-try {
-    httpModule = await import('http');
-    httpsModule = await import('https');
-    zlibModule = await import('zlib');
-} catch {
-    // Browser environment - no http/https/zlib modules needed
-}
-
 /**
  * Simple SSE client for Node.js environments
  * Parses Server-Sent Events from an HTTP response stream
@@ -29,7 +15,6 @@ class NodeSSEClient {
         this._url = url;
         this._headers = options.headers || {};
         this._withCredentials = options.withCredentials || false;
-        this._httpModule = null;
         this._request = null;
         this._readyState = 0; // CONNECTING
 
@@ -84,24 +69,32 @@ class NodeSSEClient {
         }
     }
 
-    _connect() {
-        // Select http/https module based on URL protocol
-        const urlObj = new URL(this._url);
-        const isHttps = urlObj.protocol === 'https:';
-        const mod = isHttps ? httpsModule : httpModule;
-
-        if (!mod) {
+    async _connect() {
+        // Dynamically import Node.js modules (avoids top-level await for browserify compat)
+        let httpMod = null;
+        let httpsMod = null;
+        let zlibMod = null;
+        try {
+            httpMod = await import('http');
+            httpsMod = await import('https');
+            zlibMod = await import('zlib');
+        } catch {
             this._readyState = NodeSSEClient.CLOSED;
             this._dispatchError(new Error('http/https modules not available'));
             return;
         }
+
+        // Select http/https module based on URL protocol
+        const urlObj = new URL(this._url);
+        const isHttps = urlObj.protocol === 'https:';
+        const mod = isHttps ? httpsMod : httpMod;
 
         const requestOptions = {
             method: 'GET',
             headers: {
                 'Accept': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                ...(zlibModule ? { 'Accept-Encoding': 'gzip, deflate' } : {}),
+                ...(zlibMod ? { 'Accept-Encoding': 'gzip, deflate' } : {}),
                 ...this._headers
             }
         };
@@ -144,10 +137,10 @@ class NodeSSEClient {
                 // Decompress if server sent gzip/deflate
                 let stream = res;
                 const encoding = (res.headers['content-encoding'] || '').toLowerCase();
-                if (zlibModule && encoding === 'gzip') {
-                    stream = res.pipe(zlibModule.createGunzip());
-                } else if (zlibModule && encoding === 'deflate') {
-                    stream = res.pipe(zlibModule.createInflate());
+                if (zlibMod && encoding === 'gzip') {
+                    stream = res.pipe(zlibMod.createGunzip());
+                } else if (zlibMod && encoding === 'deflate') {
+                    stream = res.pipe(zlibMod.createInflate());
                 }
 
                 stream.setEncoding('utf8');
@@ -601,6 +594,9 @@ export class SSETransport {
     async _fetch(url, options) {
         if (!this._fetchImpl) {
             throw new Error('fetch is not available. Provide a fetch implementation via options.');
+        }
+        if (this._withCredentials) {
+            options.credentials = 'include';
         }
         return this._fetchImpl(url, options);
     }

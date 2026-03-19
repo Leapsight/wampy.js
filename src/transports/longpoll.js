@@ -30,6 +30,7 @@ export class LongpollTransport {
         this._protocols = options.protocols || ['wamp.2.json'];
         this._headers = options.headers || {};
         this._fetchImpl = options.fetch || globalThis.fetch?.bind(globalThis);
+        this._withCredentials = options.withCredentials || false;
         this._receiveTimeout = options.receiveTimeout || 30000;
         this._isBinary = false;
     }
@@ -258,6 +259,9 @@ export class LongpollTransport {
     async _fetch(url, options) {
         if (!this._fetchImpl) {
             throw new Error('fetch is not available. Provide a fetch implementation via options.');
+        }
+        if (this._withCredentials) {
+            options.credentials = 'include';
         }
         return this._fetchImpl(url, options);
     }

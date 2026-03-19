@@ -1489,7 +1489,8 @@ class Wampy {
             this._ws = new LongpollTransport({
                 protocols: this._protocols,
                 headers: this._options.additionalHeaders || {},
-                fetch: this._options.fetch
+                fetch: this._options.fetch,
+                withCredentials: this._options.withCredentials
             });
             this._initWsCallbacks();
 
@@ -1694,7 +1695,8 @@ class Wampy {
             this._ws = new LongpollTransport({
                 protocols: this._protocols,
                 headers: this._options.additionalHeaders || {},
-                fetch: this._options.fetch
+                fetch: this._options.fetch,
+                withCredentials: this._options.withCredentials
             });
             this._initWsCallbacks();
 
@@ -2009,8 +2011,8 @@ class Wampy {
             ...(ppt_serializer ? { ppt_serializer } : {}),
             ...(ppt_cipher ? { ppt_cipher } : {}),
             ...(ppt_keyid ? { ppt_keyid } : {}),
-            ...(exclude_me ? { exclude_me } : {}),
-            ...(disclose_me ? { disclose_me } : {}),
+            ...(exclude_me !== undefined ? { exclude_me } : {}),
+            ...(disclose_me !== undefined ? { disclose_me } : {}),
             ...this._extractCustomOptions(advancedOptions)
         };
 
