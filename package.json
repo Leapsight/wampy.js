@@ -110,6 +110,7 @@
     "test:browser-wrappers": "npm run test:node -- -r jsdom-global/register 'test/wampy-browser-wrappers-test.js'",
     "test:browser": "npx karma start karma.conf.cjs",
     "cover": "c8 report",
-    "publish": "npm run build"
+    "publish": "npm run build",
+    "serve:demo": "openssl req -x509 -newkey rsa:2048 -keyout /tmp/wampy-key.pem -out /tmp/wampy-cert.pem -days 365 -nodes -subj '/CN=localhost' 2>/dev/null; python3 -c \"import http.server,ssl,os;os.chdir('.');p=int(os.environ.get('PORT',8080));ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.load_cert_chain('/tmp/wampy-cert.pem','/tmp/wampy-key.pem');s=http.server.HTTPServer(('0.0.0.0',p),http.server.SimpleHTTPRequestHandler);s.socket=ctx.wrap_socket(s.socket,server_side=True);print(f'HTTPS server running at https://localhost:{p}/test/oidc-demo.html');s.serve_forever()\""
   }
 }
