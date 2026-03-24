@@ -3,8 +3,9 @@ set -euo pipefail
 
 PORT="${PORT:-8080}"
 CERT_DIR="/tmp/wampy-demo-certs"
-DOMAINS="oidc-demo.wellos localhost 127.0.0.1 ::1"
+DOMAINS="oidc-demo.wellos.test localhost 127.0.0.1 ::1"
 
+rm -rf "$CERT_DIR"
 mkdir -p "$CERT_DIR"
 
 KEY="$CERT_DIR/key.pem"
@@ -20,7 +21,7 @@ if [ ! -f "$KEY" ] || [ ! -f "$CERT" ]; then
     mkcert -key-file "$KEY" -cert-file "$CERT" $DOMAINS
 fi
 
-echo "Serving at https://oidc-demo.wellos:${PORT}/test/oidc-demo.html"
+echo "Serving at https://oidc-demo.wellos.test:${PORT}/test/oidc-demo.html"
 
 cd "$(dirname "$0")/.."
 
