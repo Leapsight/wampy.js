@@ -52,7 +52,7 @@ button.secondary:hover{background:#4b5563}
     </div>
     <div class="row">
         <label for="realm-input">Realm:</label>
-        <input id="realm-input" type="text" value="com.leapsight.test" style="flex:1">
+        <input id="realm-input" type="text" value="com.pae.upstream" style="flex:1">
     </div>
     <div class="row">
         <label for="client-id-input">Client ID:</label>
@@ -65,13 +65,13 @@ button.secondary:hover{background:#4b5563}
     <div class="row">
         <label for="login-url-input">Login URL:</label>
         <input id="login-url-input" type="text"
-               value="https://localhost:18083/api/v1.0/oidc/login?provider=mock"
+               value="https://bondy.wellos:18083/api/v1.0/oidc/login?provider=mock"
                style="flex:1">
     </div>
     <div class="row">
         <label for="logout-url-input">Logout URL:</label>
         <input id="logout-url-input" type="text"
-               value="https://localhost:18083/api/v1.0/oidc/logout"
+               value="https://bondy.wellos:18083/api/v1.0/oidc/logout"
                style="flex:1">
     </div>
     <div class="row" style="margin-top:.75rem">
@@ -127,8 +127,8 @@ button.secondary:hover{background:#4b5563}
     // -----------------------------------------------------------------------
     // Configuration
     // -----------------------------------------------------------------------
-    const LONGPOLL_BASE = 'https://localhost:18083/wamp/longpoll';
-    const SSE_BASE      = 'https://localhost:18083/wamp/sse';
+    const LONGPOLL_BASE = 'https://bondy.wellos:18083/wamp/longpoll';
+    const SSE_BASE      = 'https://bondy.wellos:18083/wamp/sse';
 
     // -----------------------------------------------------------------------
     // DOM refs
@@ -179,9 +179,17 @@ button.secondary:hover{background:#4b5563}
         return m ? decodeURIComponent(m[1]) : null;
     }
 
+    function ticketCookieName () {
+        return 'bondy_ticket_' + $realmInput.value.trim();
+    }
+
+    function csrfCookieName () {
+        return 'bondy_csrf_' + $realmInput.value.trim();
+    }
+
     function isLoggedIn () {
         // Try reading the cookie directly (works if not HttpOnly)
-        if (getCookie('bondy_ticket') !== null) {
+        if (getCookie(ticketCookieName()) !== null) {
             localStorage.setItem('oidc_demo_logged_in', '1');
             return true;
         }
@@ -190,7 +198,7 @@ button.secondary:hover{background:#4b5563}
     }
 
     function csrfHeaders () {
-        const csrf = getCookie('bondy_csrf');
+        const csrf = getCookie(csrfCookieName());
         return csrf ? { 'X-CSRF-Token': csrf } : {};
     }
 
@@ -211,13 +219,15 @@ button.secondary:hover{background:#4b5563}
             $loginStatus.textContent = 'Logged in';
             $loginStatus.className = 'status on';
             $connectBtn.disabled = false;
-            const ticket = getCookie('bondy_ticket');
-            const csrf = getCookie('bondy_csrf');
+            const tName = ticketCookieName();
+            const cName = csrfCookieName();
+            const ticket = getCookie(tName);
+            const csrf = getCookie(cName);
             $cookieDisplay.classList.remove('hidden');
             $cookieDisplay.textContent =
-                'bondy_ticket: ' + (ticket ? ticket.slice(0, 20) + '...' : '(not set)') +
-                '\nbondy_csrf: ' + (csrf || '(not set)');
-            log('Cookies detected — ready to connect', 'log-ok');
+                tName + ': ' + (ticket ? ticket.slice(0, 20) + '...' : '(HttpOnly — sent automatically)') +
+                '\n' + cName + ': ' + (csrf || '(not set)');
+            log('Logged in — ready to connect', 'log-ok');
         } else {
             $loginStatus.textContent = 'Not logged in';
             $loginStatus.className = 'status off';
@@ -270,8 +280,10 @@ button.secondary:hover{background:#4b5563}
         const logoutUrl = $logoutUrlInput.value.trim();
         const redirectUri = window.location.href.split('?')[0];
         const sep = logoutUrl.includes('?') ? '&' : '?';
+        const realm = $realmInput.value.trim();
         window.location.href = logoutUrl + sep +
-            'redirect_uri=' + encodeURIComponent(redirectUri);
+            'realm=' + encodeURIComponent(realm) +
+            '&redirect_uri=' + encodeURIComponent(redirectUri);
     });
 
     // -- Connect button -----------------------------------------------------
