@@ -167,7 +167,10 @@ export class ProtocolViolationError extends Error {
 
 export class AbortError extends Error {
     constructor ({ error, details }) {
-        super(WAMP_ERROR_MSG.WAMP_ABORT);
+        const parts = [WAMP_ERROR_MSG.WAMP_ABORT];
+        if (error) { parts.push(error); }
+        if (details?.message) { parts.push(details.message); }
+        super(parts.join(': '));
         this.name = 'AbortedError';
         this.code = 30;
         this.errorUri = error;
