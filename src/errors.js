@@ -240,7 +240,9 @@ export class CallError extends WampError {
 
 export class WebsocketError extends Error {
     constructor (error) {
-        super(WAMP_ERROR_MSG.WEBSOCKET_ERROR);
+        const underlying = error?.error || error;
+        const detail = underlying?.message || (typeof underlying === 'string' ? underlying : '');
+        super(detail ? `${WAMP_ERROR_MSG.WEBSOCKET_ERROR}: ${detail}` : WAMP_ERROR_MSG.WEBSOCKET_ERROR);
         this.name = 'WebsocketError';
         this.code = 38;
         this.error = error;

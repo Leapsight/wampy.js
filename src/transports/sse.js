@@ -398,13 +398,18 @@ export class SSETransport {
             // Create EventSource
             this._eventSource = new this._EventSourceImpl(url, options);
 
+            let initialOpen = true;
+
             // Handle connection open
             this._eventSource.onopen = () => {
                 this._readyState = SSETransport.OPEN;
-                if (this._onopen) {
-                    this._onopen({ target: this });
+                if (initialOpen) {
+                    initialOpen = false;
+                    if (this._onopen) {
+                        this._onopen({ target: this });
+                    }
+                    resolve();
                 }
-                resolve();
             };
 
             // Handle WAMP messages
